@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SportSpace Hero</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #000; overflow: hidden; width: 100vw; height: 100vh; }
+  canvas { display: block; }
+  #overlay {
+    position: fixed; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse 60% 50% at 50% 50%, transparent 30%, #000 100%);
+  }
+</style>
+</head>
+<body>
+<div id="overlay"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ── Scene Setup ──────────────────────────────────────────────────────────────
+const W = window.innerWidth, H = window.innerHeight;
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+renderer.setSize(W, H);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x020412);
+scene.fog = new THREE.FogExp2(0x020412, 0.018);
+
+const camera = new THREE.PerspectiveCamera(55, W / H, 0.1, 200);
+camera.position.set(0, 4, 22);
+camera.lookAt(0, 0, 0);
+
+// ── Clock & Time ─────────────────────────────────────────────────────────────
+const clock = new THREE.Clock();
+let t = 0;
+
+// ── Colors ───────────────────────────────────────────────────────────────────
+const C = {
+  blue:   0x00b4ff,
+  cyan:   0x00ffee,
+  purple: 0x9b59ff,
+  white:  0xffffff,
+  gold:   0xffd700,
+  pink:   0xff4af5,
+};
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+const rng = (a, b) => a + Math.random() * (b - a);
+const mat = (color, emissive, rough = 0.25, metal = 0.8) =>
+  new THREE.MeshStandardMaterial({ color, emissive, emissiveIntensity: 0.6, roughness: rough, metalness: metal });
+
+// ── Lighting ─────────────────────────────────────────────────────────────────
+scene.add(new THREE.AmbientLight(0x0a0a1a, 1));
+
+const addPoint = (color, x, y, z, intensity = 3, dist = 30) => {
+  const l = new THREE.PointLight(color, intensity, dist);
+  l.position.set(x, y, z);
+  scene.add(l);
+  return l;
+};
+const lights = [
+  addPoint(C.blue,   -10,  8,  5, 4, 40),
+  addPoint(C.cyan,    10,  6, -5, 3, 35),
+  addPoint(C.purple, -5,  -4, 10, 3, 35),
+  addPoint(C.gold,    0,  14,  0, 5, 50),
+  addPoint(C.pink,    8, -8,  8, 2.5, 30),
+];
+
+// Directional for trophy
+const dir = new THREE.DirectionalLight(C.white, 1.5);
+dir.position.set(0, 20, 10);
+dir.castShadow = true;
+scene.add(dir);
+
+// ── Stadium Floor ─────────────────────────────────────────────────────────────
+const floorGeo = new THREE.PlaneGeometry(100, 100, 32, 32);
+const floorMat = new THREE.MeshStandardMaterial({
+  color: 0x030820, roughness: 0.9, metalness: 0.1,
+});
+const floor = new THREE.Mesh(floorGeo, floorMat);
+floor.rotation.x = -Math.PI / 2;
+floor.position.y = -8;
+floor.receiveShadow = true;
+scene.add(floor);
+
+// Grid lines on floor
+const gridHelper = new THREE.GridHelper(80, 40, 0x001133, 0x001133);
+gridHelper.position.y = -7.95;
+scene.add(gridHelper);
+
+// ── Stadium Light Beams ───────────────────────────────────────────────────────
+const beamPositions = [[-18,14,-10],[18,14,-10],[-18,14,10],[18,14,10]];
+beamPositions.forEach(([x,y,z]) => {
+  const beamGeo = new THREE.CylinderGeometry(0.1, 2.5, 22, 8, 1, true);
+  const beamMat = new THREE.MeshBasicMaterial({
+    color: C.blue, transparent: true, opacity: 0.04, side: THREE.DoubleSide,
+  });
+  const beam = new THREE.Mesh(beamGeo, beamMat);
+  beam.position.set(x, y - 11, z);
+  scene.add(beam);
+  addPoint(C.blue, x, y, z, 2, 25);
+});
+
+// ── Floating Geometric Shapes ─────────────────────────────────────────────────
+const geoShapes = [];
+const geoTypes = [
+  new THREE.OctahedronGeometry(0.6),
+  new THREE.TetrahedronGeometry(0.5),
+  new THREE.IcosahedronGeometry(0.45),
+  new THREE.DodecahedronGeometry(0.5),
+];
+for (let i = 0; i < 28; i++) {
+  const geo = geoTypes[i % geoTypes.length].clone();
+  const colors = [C.blue, C.cyan, C.purple, C.white];
+  const m = new THREE.MeshStandardMaterial({
+    color: colors[i % 4],
+    emissive: colors[i % 4],
+    emissiveIntensity: 0.4,
+    roughness: 0.2,
+    metalness: 0.9,
+    wireframe: Math.random() > 0.5,
+    transparent: true,
+    opacity: 0.55,
+  });
+  const mesh = new THREE.Mesh(geo, m);
+  const r = rng(9, 18), ang = rng(0, Math.PI * 2);
+  mesh.position.set(Math.cos(ang) * r, rng(-5, 8), Math.sin(ang) * r);
+  mesh.userData = { speed: rng(0.2, 0.5), phase: rng(0, Math.PI * 2), yAmp: rng(0.3, 0.8) };
+  scene.add(mesh);
+  geoShapes.push(mesh);
+}
+
+// ── Particle System ───────────────────────────────────────────────────────────
+const PARTICLES = 600;
+const pGeo = new THREE.BufferGeometry();
+const pPos = new Float32Array(PARTICLES * 3);
+const pData = [];
+for (let i = 0; i < PARTICLES; i++) {
+  const r = rng(3, 18), ang = rng(0, Math.PI * 2), y = rng(-6, 10);
+  pPos[i*3]   = Math.cos(ang) * r;
+  pPos[i*3+1] = y;
+  pPos[i*3+2] = Math.sin(ang) * r;
+  pData.push({ r, ang, y, speed: rng(0.05, 0.2), ySpeed: rng(0.002, 0.008) });
+}
+pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
+const pMat = new THREE.PointsMaterial({ color: C.cyan, size: 0.08, transparent: true, opacity: 0.7 });
+const particles = new THREE.Points(pGeo, pMat);
+scene.add(particles);
+
+// ── Trophy ────────────────────────────────────────────────────────────────────
+const trophyGroup = new THREE.Group();
+
+// Cup body
+const cupPath = new THREE.CatmullRomCurve3([
+  new THREE.Vector3(0, 0, 0),
+  new THREE.Vector3(0.9, 0.3, 0),
+  new THREE.Vector3(1.2, 1.0, 0),
+  new THREE.Vector3(1.0, 2.0, 0),
+  new THREE.Vector3(0.6, 2.8, 0),
+  new THREE.Vector3(0.5, 3.5, 0),
+  new THREE.Vector3(0.8, 4.0, 0),
+  new THREE.Vector3(0.8, 4.5, 0),
+]);
+const cupPoints = cupPath.getPoints(30);
+const latheGeo = new THREE.LatheGeometry(cupPoints, 32);
+const trophyMat = new THREE.MeshStandardMaterial({
+  color: C.gold, emissive: 0xaa7700, emissiveIntensity: 0.5,
+  roughness: 0.15, metalness: 1.0,
+});
+const cup = new THREE.Mesh(latheGeo, trophyMat);
+trophyGroup.add(cup);
+
+// Handles
+[-1, 1].forEach(side => {
+  const handleCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0.8 * side, 2.0, 0),
+    new THREE.Vector3(1.8 * side, 2.5, 0),
+    new THREE.Vector3(1.8 * side, 3.5, 0),
+    new THREE.Vector3(0.8 * side, 4.0, 0),
+  ]);
+  const tubGeo = new THREE.TubeGeometry(handleCurve, 12, 0.07, 8, false);
+  trophyGroup.add(new THREE.Mesh(tubGeo, trophyMat));
+});
+
+// Base
+const baseGeo = new THREE.CylinderGeometry(1.2, 1.4, 0.5, 32);
+const base = new THREE.Mesh(baseGeo, trophyMat);
+base.position.y = -0.25;
+trophyGroup.add(base);
+
+const stemGeo = new THREE.CylinderGeometry(0.25, 0.25, 1.2, 16);
+const stem = new THREE.Mesh(stemGeo, trophyMat);
+stem.position.y = 0.85;
+trophyGroup.add(stem);
+
+trophyGroup.position.set(0, -1.5, 0);
+trophyGroup.scale.setScalar(0.75);
+scene.add(trophyGroup);
+
+// Glow ring under trophy
+const ringGeo = new THREE.RingGeometry(1.2, 2.8, 64);
+const ringMat = new THREE.MeshBasicMaterial({ color: C.gold, transparent: true, opacity: 0.2, side: THREE.DoubleSide });
+const ring = new THREE.Mesh(ringGeo, ringMat);
+ring.rotation.x = -Math.PI / 2;
+ring.position.y = -3.7;
+scene.add(ring);
+
+// ── Sport Objects (orbit around trophy) ──────────────────────────────────────
+const orbitObjects = [];
+
+function makeSphere(radius, color, emissive) {
+  return new THREE.Mesh(new THREE.SphereGeometry(radius, 20, 20),
+    new THREE.MeshStandardMaterial({ color, emissive, emissiveIntensity: 0.5, roughness: 0.3, metalness: 0.6 }));
+}
+
+function makeBox(w, h, d, color, emissive) {
+  return new THREE.Mesh(new THREE.BoxGeometry(w, h, d),
+    new THREE.MeshStandardMaterial({ color, emissive, emissiveIntensity: 0.4, roughness: 0.35, metalness: 0.7 }));
+}
+
+function makeCylinder(rt, rb, h, color, emissive) {
+  return new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, 16),
+    new THREE.MeshStandardMaterial({ color, emissive, emissiveIntensity: 0.4, roughness: 0.3, metalness: 0.8 }));
+}
+
+// Build orbit objects
+const sportDefs = [
+  // [name, orbitRadius, orbitSpeed, startAngle, yOffset, buildFn]
+  { name:'basketball',    r:6.5,  s:0.28, a:0,           y:0.5,  build: () => {
+    const g = new THREE.Group();
+    const ball = makeSphere(0.45, 0xe85d04, 0xaa3000);
+    // seam lines
+    const seam = new THREE.TorusGeometry(0.45, 0.02, 8, 32);
+    const seamM = new THREE.MeshBasicMaterial({ color: 0x111 });
+    [0, Math.PI/2].forEach(rot => {
+      const s = new THREE.Mesh(seam, seamM);
+      s.rotation.y = rot;
+      ball.add(s);
+    });
+    g.add(ball);
+    return g;
+  }},
+  { name:'football',      r:7.5,  s:0.22, a:0.7,         y:-0.5, build: () => {
+    const g = new THREE.Group();
+    const ball = makeSphere(0.42, 0xffffff, 0x888888);
+    // pentagon patches approximation
+    for(let i = 0; i < 5; i++) {
+      const patch = new THREE.Mesh(new THREE.CircleGeometry(0.14, 5),
+        new THREE.MeshStandardMaterial({ color: 0x111, emissive: 0x333, emissiveIntensity: 0.3 }));
+      patch.position.set(Math.sin(i*Math.PI*0.4)*0.28, Math.cos(i*Math.PI*0.4)*0.28, 0.35);
+      patch.lookAt(new THREE.Vector3(patch.position.x*2, patch.position.y*2, patch.position.z*2));
+      ball.add(patch);
+    }
+    g.add(ball);
+    return g;
+  }},
+  { name:'volleyball',    r:8.0,  s:0.18, a:1.4,         y:1.2,  build: () => {
+    const g = new THREE.Group();
+    const ball = makeSphere(0.42, 0xf5f0e8, 0x999977);
+    for(let i = 0; i < 3; i++) {
+      const stripe = new THREE.Mesh(new THREE.TorusGeometry(0.43, 0.025, 6, 32),
+        new THREE.MeshBasicMaterial({ color: [0x0044cc, 0xcc4400, 0x00aa44][i] }));
+      stripe.rotation.y = i * Math.PI / 3;
+      ball.add(stripe);
+    }
+    g.add(ball);
+    return g;
+  }},
+  { name:'cricket_bat',   r:5.8,  s:0.35, a:2.1,         y:-0.3, build: () => {
+    const g = new THREE.Group();
+    const blade = makeBox(0.55, 1.4, 0.1, 0xd4a84b, 0x8b6914);
+    blade.position.y = 0.5;
+    const handle = makeCylinder(0.06, 0.06, 0.9, 0xccbbaa, 0x998866);
+    handle.position.y = -0.65;
+    // grip wrapping
+    const grip = makeCylinder(0.075, 0.075, 0.85, 0x222, 0x111);
+    grip.position.y = -0.65;
+    g.add(blade, handle, grip);
+    g.rotation.z = 0.3;
+    return g;
+  }},
+  { name:'cricket_ball',  r:5.2,  s:0.4,  a:2.5,         y:0.8,  build: () => {
+    const g = new THREE.Group();
+    const ball = makeSphere(0.32, 0xcc0000, 0x880000);
+    const seam = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.02, 6, 32),
+      new THREE.MeshBasicMaterial({ color: 0xeeddbb }));
+    ball.add(seam);
+    g.add(ball);
+    return g;
+  }},
+  { name:'badminton',     r:7.0,  s:0.25, a:3.2,         y:0.4,  build: () => {
+    const g = new THREE.Group();
+    // racket frame
+    const frameGeo = new THREE.TorusGeometry(0.45, 0.03, 8, 32, Math.PI * 2);
+    const frame = new THREE.Mesh(frameGeo, mat(C.cyan, C.cyan, 0.2, 0.9));
+    frame.rotation.x = Math.PI / 2;
+    // strings
+    for(let i = -3; i <= 3; i++) {
+      const sg = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, 0.9, 4),
+        new THREE.MeshBasicMaterial({ color: 0xaaffff }));
+      sg.position.set(i*0.13, 0, 0);
+      g.add(sg);
+      const sg2 = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, 0.9, 4),
+        new THREE.MeshBasicMaterial({ color: 0xaaffff }));
+      sg2.rotation.z = Math.PI / 2;
+      sg2.position.set(0, i*0.13, 0);
+      g.add(sg2);
+    }
+    // handle
+    const handle = makeCylinder(0.035, 0.05, 1.1, C.purple, 0x440088);
+    handle.position.y = -0.77;
+    g.add(frame, handle);
+    return g;
+  }},
+  { name:'shuttlecock',   r:6.3,  s:0.3,  a:3.6,         y:-0.8, build: () => {
+    const g = new THREE.Group();
+    const cork = makeSphere(0.14, 0xf5f0e0, 0xaaaaaa);
+    // feather vanes
+    for(let i = 0; i < 8; i++) {
+      const vane = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.55, 4),
+        new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x888888, emissiveIntensity: 0.3,
+          transparent: true, opacity: 0.85, side: THREE.DoubleSide }));
+      vane.rotation.x = 0.4;
+      vane.position.set(Math.sin(i*Math.PI/4)*0.08, 0.28, Math.cos(i*Math.PI/4)*0.08);
+      g.add(vane);
+    }
+    g.add(cork);
+    return g;
+  }},
+  { name:'tennis_racket', r:8.5,  s:0.2,  a:4.2,         y:0.6,  build: () => {
+    const g = new THREE.Group();
+    const frame = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.04, 8, 32),
+      mat(0xddaa00, 0x886600, 0.2, 0.8));
+    frame.rotation.x = Math.PI / 2;
+    for(let i = -3; i <= 3; i++) {
+      const sg = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 1.0, 4),
+        new THREE.MeshBasicMaterial({ color: 0xffffaa }));
+      sg.position.set(i*0.14, 0, 0);
+      g.add(sg);
+      const sg2 = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 1.0, 4),
+        new THREE.MeshBasicMaterial({ color: 0xffffaa }));
+      sg2.rotation.z = Math.PI / 2;
+      sg2.position.set(0, i*0.14, 0);
+      g.add(sg2);
+    }
+    const handle = makeCylinder(0.04, 0.055, 1.2, 0x883300, 0x441100);
+    handle.position.y = -0.85;
+    g.add(frame, handle);
+    return g;
+  }},
+  { name:'tennis_ball',   r:9.0,  s:0.24, a:4.7,         y:-0.4, build: () => {
+    const g = new THREE.Group();
+    const ball = makeSphere(0.3, 0xccee00, 0x778800);
+    const seam = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.018, 6, 32, Math.PI * 2),
+      new THREE.MeshBasicMaterial({ color: 0xffffff }));
+    seam.rotation.x = 0.5;
+    ball.add(seam);
+    g.add(ball);
+    return g;
+  }},
+  { name:'pickleball',    r:6.8,  s:0.32, a:5.1,         y:1.0,  build: () => {
+    const g = new THREE.Group();
+    const paddle = makeBox(0.55, 0.75, 0.06, 0x2233cc, 0x001188);
+    // holes
+    for(let row = 0; row < 4; row++) for(let col = 0; col < 3; col++) {
+      const hole = new THREE.Mesh(new THREE.CircleGeometry(0.04, 8),
+        new THREE.MeshBasicMaterial({ color: 0x0011aa }));
+      hole.position.set(-0.15+col*0.15, -0.25+row*0.17, 0.04);
+      paddle.add(hole);
+    }
+    const handle = makeCylinder(0.05, 0.065, 0.7, 0x111, 0x333);
+    handle.position.y = -0.72;
+    g.add(paddle, handle);
+    return g;
+  }},
+  { name:'pb_ball',       r:6.2,  s:0.36, a:5.6,         y:-1.0, build: () => {
+    const g = new THREE.Group();
+    const ball = makeSphere(0.24, 0xffee00, 0xaabb00);
+    for(let i = 0; i < 26; i++) {
+      const hole = new THREE.Mesh(new THREE.CircleGeometry(0.03, 6),
+        new THREE.MeshBasicMaterial({ color: 0xcc8800 }));
+      const phi = Math.acos(-1 + (2*i)/(26-1));
+      const theta = Math.sqrt(26*Math.PI)*phi;
+      hole.position.set(0.23*Math.sin(phi)*Math.cos(theta), 0.23*Math.cos(phi), 0.23*Math.sin(phi)*Math.sin(theta));
+      hole.lookAt(hole.position.clone().multiplyScalar(2));
+      ball.add(hole);
+    }
+    g.add(ball);
+    return g;
+  }},
+  { name:'swim_lane',     r:9.5,  s:0.15, a:0.3,         y:-1.5, build: () => {
+    const g = new THREE.Group();
+    // lane rope floats
+    for(let i = 0; i < 6; i++) {
+      const float = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8),
+        new THREE.MeshStandardMaterial({ color: i%2===0 ? 0xff4400 : 0xffffff, emissive: i%2===0?0xcc2200:0x888888, emissiveIntensity:0.4 }));
+      float.position.x = (i-2.5)*0.35;
+      g.add(float);
+    }
+    // water plane
+    const water = new THREE.Mesh(new THREE.PlaneGeometry(2.5, 0.8),
+      new THREE.MeshStandardMaterial({ color: 0x0055aa, emissive: 0x0033aa, emissiveIntensity:0.5,
+        transparent: true, opacity: 0.6, roughness: 0.1 }));
+    water.rotation.x = -Math.PI/2;
+    water.position.y = -0.3;
+    g.add(water);
+    return g;
+  }},
+];
+
+const trailData = [];
+
+sportDefs.forEach(def => {
+  const obj = def.build();
+  obj.userData = {
+    orbitR: def.r,
+    orbitSpeed: def.s,
+    angle: def.a,
+    yOffset: def.y,
+    selfRotSpeed: rng(0.3, 0.8),
+    floatAmp: rng(0.15, 0.35),
+    floatPhase: rng(0, Math.PI * 2),
+  };
+  scene.add(obj);
+  orbitObjects.push(obj);
+
+  // Trail for this object
+  const trailCount = 18;
+  const trailGeo = new THREE.BufferGeometry();
+  const trailPos = new Float32Array(trailCount * 3);
+  trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPos, 3));
+  const trailMat = new THREE.LineBasicMaterial({ color: C.cyan, transparent: true, opacity: 0.35, linewidth: 1 });
+  const trail = new THREE.Line(trailGeo, trailMat);
+  scene.add(trail);
+  trailData.push({ trail, positions: Array(trailCount).fill().map(() => new THREE.Vector3()) });
+});
+
+// ── Athlete Silhouettes ───────────────────────────────────────────────────────
+const silhouetteMat = new THREE.MeshStandardMaterial({
+  color: 0x1122cc, emissive: 0x0033ff, emissiveIntensity: 0.3,
+  transparent: true, opacity: 0.55, side: THREE.DoubleSide,
+});
+
+function makeSilhouette(type) {
+  const g = new THREE.Group();
+  const bodyMat = silhouetteMat.clone();
+
+  // Torso
+  const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, 0.65, 8), bodyMat);
+  torso.position.y = 0.55;
+
+  // Head
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 10), bodyMat);
+  head.position.y = 1.02;
+
+  // Legs
+  const legL = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.05, 0.6, 6), bodyMat);
+  const legR = legL.clone();
+  legL.position.set(-0.1, 0.05, 0);
+  legR.position.set(0.1, 0.05, 0);
+
+  // Arms
+  const armL = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.035, 0.55, 6), bodyMat);
+  const armR = armL.clone();
+
+  switch(type) {
+    case 'batting':
+      armL.rotation.z = -0.6; armL.position.set(-0.28, 0.72, 0);
+      armR.rotation.z = 0.3;  armR.position.set(0.28, 0.8, 0);
+      legL.rotation.z = 0.2;  legR.rotation.z = -0.15;
+      // bat
+      const bat = makeBox(0.07, 0.75, 0.06, 0xd4a84b, 0x8b6914);
+      bat.position.set(0.45, 0.8, 0.1);
+      bat.rotation.z = -1.1;
+      g.add(bat);
+      break;
+    case 'basketball':
+      armL.rotation.z = -Math.PI/3; armL.position.set(-0.3, 0.85, 0);
+      armR.rotation.z = 1.5; armR.position.set(0.35, 1.05, 0);
+      legL.rotation.z = 0.25; legR.rotation.z = -0.3;
+      break;
+    case 'tennis':
+      armR.rotation.z = 1.1; armR.position.set(0.38, 0.95, 0);
+      armL.rotation.z = -0.4; armL.position.set(-0.25, 0.65, 0);
+      legL.rotation.z = 0.15;
+      break;
+    case 'badminton':
+      armR.rotation.z = 1.8; armR.rotation.x = 0.3; armR.position.set(0.3, 1.05, 0);
+      armL.rotation.z = -0.3; armL.position.set(-0.25, 0.6, 0);
+      legL.rotation.z = -0.3; legR.rotation.z = 0.35;
+      break;
+    case 'swimming':
+      torso.rotation.z = Math.PI/2; torso.position.set(0, 0.25, 0);
+      head.position.set(0.5, 0.25, 0);
+      armL.rotation.z = Math.PI/2; armL.position.set(0.7, 0.45, 0);
+      armR.rotation.z = -Math.PI/4; armR.position.set(-0.3, 0.05, 0);
+      legL.rotation.z = Math.PI/2; legL.position.set(-0.7, 0.3, 0.1);
+      legR.rotation.z = Math.PI/2; legR.position.set(-0.7, 0.15, -0.1);
+      break;
+    case 'football':
+      legR.rotation.z = -0.9; legR.position.set(0.2, 0.1, 0.15);
+      legL.rotation.z = 0.1;
+      armL.rotation.z = -0.6; armL.position.set(-0.3, 0.65, 0);
+      armR.rotation.z = 0.5;  armR.position.set(0.3, 0.7, 0);
+      break;
+    default:
+      armL.position.set(-0.22, 0.65, 0);
+      armR.position.set(0.22, 0.65, 0);
+  }
+
+  g.add(torso, head, legL, legR, armL, armR);
+  return g;
+}
+
+const silhouetteTypes = ['batting','basketball','tennis','badminton','swimming','football'];
+const silhouettePositions = [
+  [-14, -7, -8], [14, -7, -6], [-10, -7, 4], [10, -7, 4], [0, -7, -14], [-6, -7, -12]
+];
+
+silhouetteTypes.forEach((type, i) => {
+  const s = makeSilhouette(type);
+  s.position.set(...silhouettePositions[i]);
+  s.scale.setScalar(2.2);
+  s.rotation.y = rng(-0.3, 0.3) + (i % 2 === 0 ? 0 : Math.PI);
+  scene.add(s);
+});
+
+// ── Digital Network Pattern (ring of nodes) ───────────────────────────────────
+const nodeCount = 24;
+for (let i = 0; i < nodeCount; i++) {
+  const ang = (i / nodeCount) * Math.PI * 2;
+  const r = 13;
+  const node = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 6),
+    new THREE.MeshBasicMaterial({ color: i%3===0 ? C.cyan : C.purple, transparent: true, opacity: 0.5 }));
+  node.position.set(Math.cos(ang)*r, rng(-2, 3), Math.sin(ang)*r);
+  scene.add(node);
+
+  // Connect to next
+  const nextAng = ((i+1) / nodeCount) * Math.PI * 2;
+  const points = [
+    new THREE.Vector3(Math.cos(ang)*r, node.position.y, Math.sin(ang)*r),
+    new THREE.Vector3(Math.cos(nextAng)*r, rng(-2,3), Math.sin(nextAng)*r),
+  ];
+  const lineGeo = new THREE.BufferGeometry().setFromPoints(points);
+  const lineMat = new THREE.LineBasicMaterial({ color: C.blue, transparent: true, opacity: 0.18 });
+  scene.add(new THREE.Line(lineGeo, lineMat));
+}
+
+// ── Camera Animation ──────────────────────────────────────────────────────────
+let camAngle = 0;
+
+// ── Render Loop ───────────────────────────────────────────────────────────────
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = clock.getDelta();
+  t += dt;
+
+  // Trophy pulse
+  const pulseScale = 0.75 + Math.sin(t * 1.2) * 0.015;
+  trophyGroup.scale.setScalar(pulseScale);
+  trophyGroup.rotation.y = t * 0.18;
+
+  // Trophy glow ring
+  ring.rotation.z = t * 0.4;
+  ring.material.opacity = 0.12 + Math.sin(t * 2) * 0.08;
+
+  // Orbit objects
+  orbitObjects.forEach((obj, idx) => {
+    const ud = obj.userData;
+    ud.angle += ud.orbitSpeed * dt;
+    const x = Math.cos(ud.angle) * ud.orbitR;
+    const z = Math.sin(ud.angle) * ud.orbitR;
+    const y = ud.yOffset + Math.sin(t * 0.7 + ud.floatPhase) * ud.floatAmp;
+    obj.position.set(x, y, z);
+    obj.rotation.y += ud.selfRotSpeed * dt;
+    obj.rotation.x += ud.selfRotSpeed * 0.3 * dt;
+
+    // Trail
+    const td = trailData[idx];
+    td.positions.unshift(obj.position.clone());
+    td.positions.pop();
+    const trailPos = td.trail.geometry.attributes.position.array;
+    td.positions.forEach((p, pi) => {
+      trailPos[pi*3]   = p.x;
+      trailPos[pi*3+1] = p.y;
+      trailPos[pi*3+2] = p.z;
+    });
+    td.trail.geometry.attributes.position.needsUpdate = true;
+    td.trail.material.opacity = 0.1 + Math.sin(t + idx) * 0.08;
+  });
+
+  // Floating geo shapes
+  geoShapes.forEach((s, i) => {
+    const ud = s.userData;
+    s.rotation.x += ud.speed * dt * 0.5;
+    s.rotation.y += ud.speed * dt;
+    s.position.y += Math.sin(t * ud.speed + ud.phase) * ud.yAmp * dt;
+    s.position.y = Math.max(-6, Math.min(9, s.position.y));
+  });
+
+  // Particles
+  const pa = particles.geometry.attributes.position.array;
+  pData.forEach((pd, i) => {
+    pd.ang += pd.speed * dt * 0.1;
+    pd.y += pd.ySpeed;
+    if (pd.y > 10) { pd.y = -6; pd.ang = rng(0, Math.PI*2); }
+    pa[i*3]   = Math.cos(pd.ang) * pd.r;
+    pa[i*3+1] = pd.y;
+    pa[i*3+2] = Math.sin(pd.ang) * pd.r;
+  });
+  particles.geometry.attributes.position.needsUpdate = true;
+
+  // Animate lights
+  lights[0].intensity = 3.5 + Math.sin(t * 0.7) * 0.8;
+  lights[1].intensity = 3.0 + Math.sin(t * 0.9 + 1) * 0.7;
+  lights[2].intensity = 3.0 + Math.sin(t * 1.1 + 2) * 0.6;
+
+  // Camera slow cinematic orbit
+  camAngle += dt * 0.07;
+  const camR = 22;
+  camera.position.x = Math.cos(camAngle) * camR;
+  camera.position.z = Math.sin(camAngle) * camR;
+  camera.position.y = 4 + Math.sin(t * 0.15) * 2;
+  camera.lookAt(0, 0.5, 0);
+
+  renderer.render(scene, camera);
+}
+
+animate();
+
+// ── Resize ────────────────────────────────────────────────────────────────────
+window.addEventListener('resize', () => {
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+});
+</script>
+</body>
+</html>
